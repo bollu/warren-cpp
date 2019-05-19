@@ -19,6 +19,8 @@ add_executable(warren
     src/main.cpp
     src/lzero.cpp)
 
+set_target_properties(warren PROPERTIES CXX_STANDARD 14)
+
 # CLANG FORMAT
 file(GLOB_RECURSE ALL_SOURCE_FILES *.cpp *.h)
 
