@@ -26,7 +26,21 @@ $ (at root of repo)
 $ ln -s $(pwd)/post-commit .git/hooks/post-commit
 ```
 
-To build, simply use `cabal`:
+To build, use `cmake` with `make/ninja`:
+
 ```
-cabal v2-build
+$ mkdir build && cd build && cmake ../ && make
+```
+
+
+```
+$ mkdir build && cd build && cmake -Gninja ../ && ninja
+```
+
+For autocompletion, I use `YouCompleteMe` along with `cmake`'s ability
+to generate autocomplete information as follows:
+
+```
+$ cd build && cmake -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ../
+$ cp compile_commands.json ../
 ```
