@@ -1,8 +1,10 @@
 #include <assert.h>
+#include <iostream>
 #include <map>
 #include <set>
 #include <stack>
 #include <vector>
+
 using namespace std;
 
 struct Hix {
@@ -28,7 +30,15 @@ struct Hix {
 
     // for std::map
     bool operator<(const Hix &other) const { return hix < other.hix; }
+
+    void print(std::ostream &o, bool color = false) const { o << "0x" << hix; }
+
 };
+
+std::ostream &operator<<(std::ostream &o, Hix hix) {
+    hix.print(o);
+    return o;
+}
 
 struct Register {
     int r;
@@ -42,7 +52,15 @@ struct Register {
 
     // for std::map
     bool operator<(const Register &other) const { return r < other.r; }
+
+    void print(std::ostream &o, bool color = false) const { o << "%" << r; }
+
 };
+
+std::ostream &operator<<(std::ostream &o, Register r) {
+    r.print(o);
+    return o;
+}
 
 enum class Htag { Ref, Str, Functor };
 
@@ -55,7 +73,15 @@ struct Functor {
     bool operator==(const Functor &other) const {
         return id == other.id && arity == other.arity;
     }
+    void print(ostream &o) {
+        o << id << "/" << arity;
+    }
 };
+
+std::ostream &operator<<(std::ostream &o, Functor f) {
+    f.print(o);
+    return o;
+}
 
 struct Hcell {
     Htag tag;
@@ -112,7 +138,25 @@ struct Hcell {
         assert(tag == Htag::Functor);
         return f_;
     }
+
+    void print(ostream &o) {
+        switch(tag) {
+            case Htag::Ref:
+                o << "REF(" << hix_ <<")";
+                return;
+            case Htag::Str:
+                o << "STR(" << hix_ <<")";
+            case Htag::Functor:
+                o << "F(" << f_ <<")";
+        }
+    }
 };
+
+
+std::ostream &operator<<(std::ostream &o, Hcell hc) {
+    hc.print(o);
+    return o;
+}
 
 enum class AddrTag { Reg, Heap };
 // TODO: how to overload casting?
@@ -160,7 +204,8 @@ struct Machine {
     Hix h;
     Hix s;
     Mode mode;
-    stack<Addr> pdl;
+
+    Machine()  : h(0), s(0), mode(Mode::Read) {};
 };
 
 // Figure 2.2
@@ -337,9 +382,34 @@ struct FOTerm {
     }
 
     static FOTerm constant(std::string name) { return functor(name, {}); }
+
+    void print(ostream &o) {
+        switch (tag) {
+            case FOTermTag::Variable:
+                o << name;
+                return;
+            case FOTermTag::Functor:
+                o << name <<"(";
+                for(int i =0; i < params.size();++i) {
+                    params[i].print(o);
+                    if (i + 1 < params.size())
+                        o << ", ";
+                }
+                o << ")";
+
+        }
+    }
 };
 
+
+std::ostream &operator<<(std::ostream &o, FOTerm t) {
+    t.print(o);
+    return o;
+}
+
 // flattened first order term
+// Note that this can be unioned with FOTTerm if FOTTerm were made
+// a template over what it stores.
 struct FOTermFlattened {
     std::vector<Register> params;
     FOTermTag tag;
@@ -353,7 +423,42 @@ struct FOTermFlattened {
         t.name = vname;
         return t;
     }
+
+
+    static FOTermFlattened functor(std::string fname,
+                          std::vector<Register> params) {
+        FOTermFlattened t;
+        // should be small letter
+        assert(fname[0] >= 'a' && fname[0] <= 'z');
+        t.name = fname;
+        t.tag = FOTermTag::Functor;
+        t.params = params;
+        return t;
+    }
+
+    void print(ostream &o) {
+        switch (tag) {
+            case FOTermTag::Variable:
+                o << name;
+                return;
+            case FOTermTag::Functor:
+                o << name <<"(";
+                for(int i =0; i < params.size();++i) {
+                    params[i].print(o);
+                    if (i + 1 < params.size())
+                        o << ", ";
+                }
+                o << ")";
+
+        }
+    }
 };
+
+
+std::ostream &operator<<(std::ostream &o, FOTermFlattened t) {
+    t.print(o);
+    return o;
+}
 
 // the state of the Flattener which prepares the initial state of the
 // machine.
@@ -385,9 +490,12 @@ Register flatten(Flattener &c, FOTerm term) {
             // register for parameters
             std::vector<Register> prs;
             Register rnew = c.flat.size() + 1;
-            for (FOTerm param: term.params) {
-                prs.push_back(flatten(c, param));
+            // HACK: reserve this register.
+            c.flat[rnew];
+            for (auto it : term.params) {
+                prs.push_back(flatten(c, it));
             }
+            c.flat[rnew] = FOTermFlattened::functor(term.name, prs);
             return rnew;
         }
     }
@@ -444,3 +552,52 @@ Machine compileProgram(Machine m, std::map<Register, FOTermFlattened> flat) {
     }
     return m;
 };
+
+void prettyPrintMachine(Machine m) {
+    // H, S
+    cout << "H: " << m.h << "|S: " << m.s << "\n";
+
+    cout << "Heap:\n";
+    for(auto it: m.heap) {
+        cout << it.first << " -> " << it.second;
+        cout << "\n";
+    }
+    cout << "\n--\n";
+
+    cout << "Registers:\n";
+    for(auto it: m.regval) {
+        cout << it.first << " -> " << it.second;
+        cout << "\n";
+    }
+    cout << "\n--\n";
+}
+
+template<typename K, typename V>
+void printMap(std::ostream &o, const std::map<K, V> &m) {
+    for(auto it: m) {
+        o << it.first << " -> " << it.second << "\n";
+    }
+}
+
+// pretty print to ensure that we get a similar heap representation as in
+// figure 2.1
+void fig21() {
+    FOTerm W = FOTerm::variable("W");
+    FOTerm Z = FOTerm::variable("Z");
+    FOTerm fW = FOTerm::functor("f", {W});
+    FOTerm hZW = FOTerm::functor("h", {Z, W});
+    FOTerm p = FOTerm::functor("p", {Z, hZW, fW});
+
+    cout << "flattening term: " << p << "\n";
+
+    Flattener f;
+    (void)flatten(f, p);
+
+    cout << "flattened representation (page 15):\n";
+    printMap(std::cout, f.flat);
+
+    Machine m;
+    m = compileQuery(m, f.flat);
+
+    prettyPrintMachine(m);
+}
