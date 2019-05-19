@@ -56,27 +56,27 @@ struct Functor {
 
 struct Hcell {
     Htag tag;
-    Hix hix;
-    Functor f;
+    Hix hix_;
+    Functor f_;
 
     static Hcell str(Hix hix) {
         Hcell h;
         h.tag = Htag::Str;
-        h.hix = hix;
+        h.hix_ = hix;
         return h;
     }
 
     static Hcell ref(Hix hix) {
         Hcell h;
         h.tag = Htag::Ref;
-        h.hix = hix;
+        h.hix_ = hix;
         return h;
     }
 
     static Hcell functor(Functor f) {
         Hcell h;
         h.tag = Htag::Functor;
-        h.f = f;
+        h.f_ = f;
         return h;
     }
 
@@ -85,12 +85,33 @@ struct Hcell {
         switch (tag) {
             case Htag::Ref:
             case Htag::Str:
-                return hix == other.hix;
+                return hix_ == other.hix_;
             case Htag::Functor:
-                return f == other.f;
+                return f_ == other.f_;
         }
         assert(false && "unreachable");
     }
+
+    Hix hix() const {
+        assert(tag == Htag::Ref || tag == Htag::Str);
+        return hix_;
+    }
+
+    // This seems dangerous
+    // operator Hix () const {
+    //     return hix();
+    // }
+
+    // This is less dangerous, and gives us a way to "destructure" nicely.
+    operator Functor () const {
+        return f();
+    }
+
+    Functor f() const {
+        assert(tag == Htag::Functor);
+        return f_;
+    }
+
 };
 
 enum class AddrTag { Reg, Heap };
@@ -181,8 +202,8 @@ Addr deref(Machine m, Addr a) {
     const Hcell hc = machineAtAddr(m, a);
     // if we have a reference to chase which is not pointing to itself, then
     // chase it
-    if (hc.tag == Htag::Ref && Addr(hc.hix) != a) {
-        deref(m, hc.hix);
+    if (hc.tag == Htag::Ref && Addr(hc.hix()) != a) {
+        deref(m, hc.hix());
     }
     return a;
 }
@@ -214,7 +235,7 @@ Machine getStructure(Functor f, Register r, Machine m) {
             m.mode = Mode::Write;
             break;
         case Htag::Str:
-            if (m.heap[hc.hix] == Hcell::functor(f)) {
+            if (m.heap[hc.hix()] == Hcell::functor(f)) {
                 m.s += 1;
                 m.mode = Mode::Read;
             }
@@ -257,12 +278,12 @@ Machine unify(Machine m, Addr a1, Addr a2) {
         return bind(m, d1, d2);
     }
     else {
-        Functor f1 = m.heap[h1.hix].f, f2 = m.heap[h2.hix].f;
+        Functor f1 = m.heap[h1.hix()], f2 = m.heap[h2.hix()];
         assert(f1 == f2);
 
-        for(int i = 1; i <= h1.f.arity; i++) {
+        for(int i = 1; i <= f1.arity; i++) {
             // We now union the subterms of the functor
-            m = unify(m, h1.hix + i, h2.hix + i);
+            m = unify(m, h1.hix() + i, h2.hix() + i);
         }
     }
 
