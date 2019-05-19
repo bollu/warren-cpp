@@ -1,5 +1,6 @@
 #include <assert.h>
 #include <map>
+#include <set>
 #include <stack>
 #include <vector>
 using namespace std;
@@ -46,10 +47,12 @@ struct Register {
 enum class Htag { Ref, Str, Functor };
 
 struct Functor {
-    int id;
+    string id;
     int arity;
 
-    bool operator == (const Functor &other) const {
+    Functor() : id("garbage"), arity(-42){};
+    Functor(string id, int arity) : id(id), arity(arity){};
+    bool operator==(const Functor &other) const {
         return id == other.id && arity == other.arity;
     }
 };
@@ -80,7 +83,7 @@ struct Hcell {
         return h;
     }
 
-    bool operator == (const Hcell &other) const {
+    bool operator==(const Hcell &other) const {
         if (tag != other.tag) return false;
         switch (tag) {
             case Htag::Ref:
@@ -103,15 +106,12 @@ struct Hcell {
     // }
 
     // This is less dangerous, and gives us a way to "destructure" nicely.
-    operator Functor () const {
-        return f();
-    }
+    operator Functor() const { return f(); }
 
     Functor f() const {
         assert(tag == Htag::Functor);
         return f_;
     }
-
 };
 
 enum class AddrTag { Reg, Heap };
@@ -164,7 +164,7 @@ struct Machine {
 };
 
 // Figure 2.2
-Machine putStructure(Functor f, Register r, Machine m) {
+Machine putStructure(Machine m, Register r, Functor f) {
     m.regval[r] = m.heap[m.h] = Hcell::str(m.h + 1);
     m.heap[m.h + 1] = Hcell::functor(f);
     m.h += 2;
@@ -172,14 +172,14 @@ Machine putStructure(Functor f, Register r, Machine m) {
 }
 
 // Figure 2.2
-Machine setVariale(Register r, Machine m) {
+Machine setVariable(Machine m, Register r) {
     m.regval[r] = m.heap[m.h] = Hcell::ref(m.h);
     m.h += 1;
     return m;
 }
 
 // Figure 2.2
-Machine setValue(Register r, Machine m) {
+Machine setValue(Machine m, Register r) {
     m.heap[m.h] = m.regval[r];
     m.h += 1;
     return m;
@@ -208,9 +208,8 @@ Addr deref(Machine m, Addr a) {
     return a;
 }
 
-
 // bind: page 17
-// In the definition of get structure f=n X i , we write bind(addr, H) 
+// In the definition of get structure f=n X i , we write bind(addr, H)
 // to effectuate the binding of the heap cell rather than HEAP[addr] <- <REF, H>
 // for reasons that will become clear later.
 // This is slightly generalized from the version they give for the
@@ -222,14 +221,14 @@ Machine bind(Machine m, Addr storeLoc, Addr toStore) {
 };
 
 // Figure 2.6
-Machine getStructure(Functor f, Register r, Machine m) {
+Machine getStructure(Machine m, Register r, Functor f) {
     const Addr addr = deref(m, r);
     const Hcell hc = machineAtAddr(m, addr);
 
-    switch(hc.tag) {
+    switch (hc.tag) {
         case Htag::Ref:
             m.heap[m.h] = Hcell::ref(m.h + 1);
-            m.heap[m.h+1] = Hcell::functor(f);
+            m.heap[m.h + 1] = Hcell::functor(f);
             m = bind(m, addr, m.h);
             m.h += 2;
             m.mode = Mode::Write;
@@ -276,12 +275,11 @@ Machine unify(Machine m, Addr a1, Addr a2) {
 
     if (h1.tag == Htag::Ref || h2.tag == Htag::Ref) {
         return bind(m, d1, d2);
-    }
-    else {
+    } else {
         Functor f1 = m.heap[h1.hix()], f2 = m.heap[h2.hix()];
         assert(f1 == f2);
 
-        for(int i = 1; i <= f1.arity; i++) {
+        for (int i = 1; i <= f1.arity; i++) {
             // We now union the subterms of the functor
             m = unify(m, h1.hix() + i, h2.hix() + i);
         }
@@ -290,8 +288,7 @@ Machine unify(Machine m, Addr a1, Addr a2) {
     return m;
 };
 
-
-//Figure 2.6
+// Figure 2.6
 Machine unifyValue(Machine m, Register r) {
     switch (m.mode) {
         case Mode::Read:
@@ -305,3 +302,145 @@ Machine unifyValue(Machine m, Register r) {
     m.s += 1;
     return m;
 }
+
+// value that are available first order terms.
+// A variable is a captialized identifier
+// A functor is a structure of the form f(t1, t2, .. tn) where the
+//     t1 .. tn are are the sub-terms.
+// A constant is a functor with 0 arguments.
+enum class FOTermTag { Variable, Functor };
+
+// First order terms
+struct FOTerm {
+    std::vector<FOTerm> params;  // parameters if it's a functor.
+    FOTermTag tag;
+    std::string name;  // name of a variable, constant, or functor.
+
+    static FOTerm variable(std::string vname) {
+        FOTerm t;
+        t.tag = FOTermTag::Variable;
+        // should be capital
+        assert(vname[0] >= 'A' && vname[0] <= 'Z');
+        t.name = vname;
+        return t;
+    }
+
+    static FOTerm functor(std::string fname,
+                          std::initializer_list<FOTerm> params) {
+        FOTerm t;
+        // should be small letter
+        assert(fname[0] >= 'a' && fname[0] <= 'z');
+        t.name = fname;
+        t.tag = FOTermTag::Functor;
+        t.params = params;
+        return t;
+    }
+
+    static FOTerm constant(std::string name) { return functor(name, {}); }
+};
+
+// flattened first order term
+struct FOTermFlattened {
+    std::vector<Register> params;
+    FOTermTag tag;
+    std::string name;
+
+    static FOTermFlattened variable(std::string vname) {
+        FOTermFlattened t;
+        t.tag = FOTermTag::Variable;
+        // should be capital
+        assert(vname[0] >= 'A' && vname[0] <= 'Z');
+        t.name = vname;
+        return t;
+    }
+};
+
+// the state of the Flattener which prepares the initial state of the
+// machine.
+struct Flattener {
+    Machine m;
+    std::map<std::string, Register> var2reg;
+    // The flattened system of equations
+    std::map<Register, FOTermFlattened> flat;
+};
+
+// flatten a FOTerm into a system of FOTermFlattened
+Register flatten(Flattener &c, FOTerm term) {
+    switch (term.tag) {
+        case FOTermTag::Variable: {
+            auto it = c.var2reg.find(term.name);
+            // variable has already been allocated, nothing more to do
+            if (it != c.var2reg.end()) return it->second;
+
+            // allocate a variable. So, populate the flattened representation,
+            // and create a new mapping from the variable to the register.
+            Register rnew = c.flat.size() + 1;
+            c.flat[rnew] = FOTermFlattened::variable(term.name);
+            c.var2reg[term.name] = rnew;
+            return rnew;
+        }
+
+        case FOTermTag::Functor: {
+            // create a new register for the functor
+            // register for parameters
+            std::vector<Register> prs;
+            Register rnew = c.flat.size() + 1;
+            for (FOTerm param: term.params) {
+                prs.push_back(flatten(c, param));
+            }
+            return rnew;
+        }
+    }
+    assert(false && "unreachable");
+};
+
+// compile a flattened system of queries into a machine state
+Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
+    // checks if a register has been seen before.
+    std::set<Register> seenregs;
+    for (auto it = flat.begin(); it != flat.end(); ++it) {
+        switch (it->second.tag) {
+            case FOTermTag::Functor: {
+                Functor f = Functor(it->second.name, it->second.params.size());
+                m = putStructure(m, it->first, f);
+            }
+            case FOTermTag::Variable: {
+                // we've seen this variable
+                if (seenregs.count(it->first)) {
+                    m = setValue(m, it->first);
+                } else {
+                    m = setVariable(m, it->first);
+                    seenregs.insert(it->first);
+                }
+            }
+        }
+    }
+    return m;
+};
+
+// compile a flattened system of program expression into a machine state
+// compare to compileQuery, notice how similar the code is
+// TODO: extract out the common parts into a higher order function.
+Machine compileProgram(Machine m, std::map<Register, FOTermFlattened> flat) {
+    return m;
+    // checks if a register has been seen before.
+    std::set<Register> seenregs;
+    for (auto it = flat.begin(); it != flat.end(); ++it) {
+        switch (it->second.tag) {
+            case FOTermTag::Functor: {
+                Functor f = Functor(it->second.name, it->second.params.size());
+                m = getStructure(m, it->first, f);
+            }
+            case FOTermTag::Variable: {
+                // we've seen this variable
+                if (seenregs.count(it->first)) {
+                    m = unifyValue(m, it->first);
+                } else {
+                    m = unifyVariable(m, it->first);
+                    seenregs.insert(it->first);
+                }
+            }
+        }
+    }
+    return m;
+};
