@@ -786,24 +786,23 @@ void test_compile_query() {
 }
 
 void test_compile_program() {
-    return ;
+    const FOTerm q = test_create_query();
+    const FOTerm p = test_create_program();
     std::cout << "*** TEST_COMPILE_PROGRAM ***\n";
 
     Machine m;
 
     {
-        FOTerm q = test_create_query();
         Flattener f;
         (void)flatten(f, q);
 
         std::vector<Inst> is = compileQuery(f.flat);
-
+        m = runInsts(m, is);
         std::cout << "*** Machine state after compiling query: " << q
                   << " ***\n";
         prettyPrintMachine(m);
     }
 
-    FOTerm p = test_create_program();
     std::cout << "*** flattening program: " << p << " ***\n";
     {
         Flattener f;
@@ -812,9 +811,9 @@ void test_compile_program() {
         std::cout << "*** flattened representation (page 15) ***\n";
         printMap(std::cout, f.flat);
         std::vector<Inst> is = compileQuery(f.flat);
+        std::cout << "*** Running program " << p << "On query " << q << "***\n";
+        runInstsPrettyPrint(std::cout, m, is);
     }
 
-    std::cout << "*** machine state after program compilation ***\n";
-    prettyPrintMachine(m);
 }
 
