@@ -645,6 +645,7 @@ Machine runInst(Machine m, Inst i) {
         case UnifyVariable: return unifyVariable(m, i.get<Register>(0));
         case UnifyValue: return unifyValue(m, i.get<Register>(0));
     }
+    assert(false && "unreachable");
 }
 
 // run a sequence of instructions.
@@ -791,29 +792,29 @@ void test_compile_program() {
     std::cout << "*** TEST_COMPILE_PROGRAM ***\n";
 
     Machine m;
+    Flattener f;
 
     {
-        Flattener f;
-        (void)flatten(f, q);
 
-        std::vector<Inst> is = compileQuery(f.flat);
-        m = runInsts(m, is);
-        std::cout << "*** Machine state after compiling query: " << q
-                  << " ***\n";
-        prettyPrintMachine(m);
+        // std::cout << "*** Machine state after compiling query: " << q
+        //           << " ***\n";
+        // prettyPrintMachine(m);
     }
 
-    std::cout << "*** flattening program: " << p << " ***\n";
-    {
-        Flattener f;
-        (void)flatten(f, p);
+    std::cout << "*** flattened query: " << q << " | program: " << p << " ***\n";
+    (void)flatten(f, q);
+    (void)flatten(f, p);
 
-        std::cout << "*** flattened representation (page 15) ***\n";
-        printMap(std::cout, f.flat);
-        std::vector<Inst> is = compileQuery(f.flat);
-        std::cout << "*** Running program " << p << "On query " << q << "***\n";
-        runInstsPrettyPrint(std::cout, m, is);
-    }
+    std::cout << "*** flattened representation (page 15) ***\n";
+    printMap(std::cout, f.flat);
+
+    std::vector<Inst> is = compileQuery(f.flat);
+    std::cout << "*** Running program " << p << "On query " << q << "***\n";
+    m = runInsts(m, is);
+
+    std::cout << "*** final state:**\n";
+    prettyPrintMachine(m);
+        // runInstsPrettyPrint(std::cout, m, is);
 
 }
 
