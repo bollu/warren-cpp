@@ -4,8 +4,8 @@
 #include <set>
 #include <stack>
 #include <vector>
+#include <functional>
 
-using namespace std;
 
 struct Hix {
     int hix;
@@ -63,15 +63,15 @@ std::ostream &operator<<(std::ostream &o, Register r) {
 enum class Htag { Ref, Str, Functor };
 
 struct Functor {
-    string id;
+    std::string id;
     int arity;
 
     Functor() : id("garbage"), arity(-42){};
-    Functor(string id, int arity) : id(id), arity(arity){};
+    Functor(std::string id, int arity) : id(id), arity(arity){};
     bool operator==(const Functor &other) const {
         return id == other.id && arity == other.arity;
     }
-    void print(ostream &o) { o << id << "/" << arity; }
+    void print(std::ostream &o) { o << id << "/" << arity; }
 };
 
 std::ostream &operator<<(std::ostream &o, Functor f) {
@@ -135,7 +135,7 @@ struct Hcell {
         return f_;
     }
 
-    void print(ostream &o) {
+    void print(std::ostream &o) {
         switch (tag) {
             case Htag::Ref:
                 o << "REF(" << hix_ << ")";
@@ -195,8 +195,8 @@ struct Addr {
 
 enum class Mode { Read, Write };
 struct Machine {
-    map<Hix, Hcell> heap;
-    map<Register, Hcell> regval;
+    std::map<Hix, Hcell> heap;
+    std::map<Register, Hcell> regval;
     Hix h;
     Hix s;
     Mode mode;
@@ -379,7 +379,7 @@ struct FOTerm {
 
     static FOTerm constant(std::string name) { return functor(name, {}); }
 
-    void print(ostream &o) {
+    void print(std::ostream &o) {
         switch (tag) {
             case FOTermTag::Variable:
                 o << name;
@@ -428,7 +428,7 @@ struct FOTermFlattened {
         return t;
     }
 
-    void print(ostream &o) {
+    void print(std::ostream &o) {
         switch (tag) {
             case FOTermTag::Variable:
                 o << name;
@@ -492,7 +492,10 @@ Register flatten(Flattener &c, FOTerm term) {
 };
 
 // compile a flattened system of queries into a machine state
-Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
+Machine compileFlattenedFOT(Machine m, std::map<Register, FOTermFlattened> flat,
+        std::function<Machine(Machine, Register, Functor)> compileFunctor,
+        std::function<Machine(Machine, Register)> compileUnseenRegister,
+        std::function<Machine(Machine, Register)> compileSeenRegister) {
     // checks if a register has been seen before.
     std::set<Register> seenregs;
 
@@ -503,15 +506,15 @@ Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
         switch (t.tag) {
             case FOTermTag::Functor: {
                 Functor f = Functor(t.name, t.params.size());
-                m = putStructure(m, rlhs, f);
+                m = compileFunctor(m, rlhs, f);
                 seenregs.insert(rlhs);
                 for (int i = 0; i < t.params.size(); i++) {
                     const Register r = t.params[i];
                     // these must be registers
                     if (seenregs.count(r)) {
-                        m = setValue(m, r);
+                        m = compileUnseenRegister(m, r);
                     } else {
-                        m = setVariable(m, r);
+                        m = compileSeenRegister(m, r);
                         seenregs.insert(r);
                     }
                 }
@@ -523,6 +526,12 @@ Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
         }
     }
     return m;
+};
+
+
+// compile a flattened system of queries into a machine state
+Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
+    compileFlattenedFOT(m, flat, putStructure, setVariable, setValue);
 };
 
 // compile a flattened system of program expression into a machine state
@@ -554,21 +563,21 @@ Machine compileProgram(Machine m, std::map<Register, FOTermFlattened> flat) {
 
 void prettyPrintMachine(Machine m) {
     // H, S
-    cout << "H: " << m.h << "|S: " << m.s << "\n";
+    std::cout << "H: " << m.h << "|S: " << m.s << "\n";
 
-    cout << "Heap:\n";
+    std::cout << "Heap:\n";
     for (auto it : m.heap) {
-        cout << it.first << " -> " << it.second;
-        cout << "\n";
+        std::cout << it.first << " -> " << it.second;
+        std::cout << "\n";
     }
-    cout << "\n--\n";
+    std::cout << "\n--\n";
 
-    cout << "Registers:\n";
+    std::cout << "Registers:\n";
     for (auto it : m.regval) {
-        cout << it.first << " -> " << it.second;
-        cout << "\n";
+        std::cout << it.first << " -> " << it.second;
+        std::cout << "\n";
     }
-    cout << "\n--\n";
+    std::cout << "\n--\n";
 }
 
 template <typename K, typename V>
@@ -587,17 +596,17 @@ void fig21() {
     FOTerm hZW = FOTerm::functor("h", {Z, W});
     FOTerm p = FOTerm::functor("p", {Z, hZW, fW});
 
-    cout << "*** flattening term: " << p << " ***\n";
+    std::cout << "*** flattening term: " << p << " ***\n";
 
     Flattener f;
     (void)flatten(f, p);
 
-    cout << "*** flattened representation (page 15) ***\n";
+    std::cout << "*** flattened representation (page 15) ***\n";
     printMap(std::cout, f.flat);
 
     Machine m;
     m = compileQuery(m, f.flat);
 
-    cout << "*** machine state after query compilation ***\n";
+    std::cout << "*** machine state after query compilation ***\n";
     prettyPrintMachine(m);
 }
