@@ -1,11 +1,10 @@
 #include <assert.h>
+#include <functional>
 #include <iostream>
 #include <map>
 #include <set>
 #include <stack>
 #include <vector>
-#include <functional>
-
 
 struct Hix {
     int hix;
@@ -492,10 +491,11 @@ Register flatten(Flattener &c, FOTerm term) {
 };
 
 // compile a flattened system of queries into a machine state
-Machine compileFlattenedFOT(Machine m, std::map<Register, FOTermFlattened> flat,
-        std::function<Machine(Machine, Register, Functor)> compileFunctor,
-        std::function<Machine(Machine, Register)> compileUnseenRegister,
-        std::function<Machine(Machine, Register)> compileSeenRegister) {
+Machine compileFlattenedFOT(
+    Machine m, std::map<Register, FOTermFlattened> flat,
+    std::function<Machine(Machine, Register, Functor)> compileFunctor,
+    std::function<Machine(Machine, Register)> compileUnseenRegister,
+    std::function<Machine(Machine, Register)> compileSeenRegister) {
     // checks if a register has been seen before.
     std::set<Register> seenregs;
 
@@ -528,38 +528,16 @@ Machine compileFlattenedFOT(Machine m, std::map<Register, FOTermFlattened> flat,
     return m;
 };
 
-
 // compile a flattened system of queries into a machine state
 Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
-    compileFlattenedFOT(m, flat, putStructure, setVariable, setValue);
-};
+    return compileFlattenedFOT(m, flat, putStructure, setVariable, setValue);
+}
 
-// compile a flattened system of program expression into a machine state
-// compare to compileQuery, notice how similar the code is
-// TODO: extract out the common parts into a higher order function.
+// compile a flattened system of a program  into a machine state
 Machine compileProgram(Machine m, std::map<Register, FOTermFlattened> flat) {
-    return m;
-    // checks if a register has been seen before.
-    std::set<Register> seenregs;
-    for (auto it = flat.begin(); it != flat.end(); ++it) {
-        switch (it->second.tag) {
-            case FOTermTag::Functor: {
-                Functor f = Functor(it->second.name, it->second.params.size());
-                m = getStructure(m, it->first, f);
-            }
-            case FOTermTag::Variable: {
-                // we've seen this variable
-                if (seenregs.count(it->first)) {
-                    m = unifyValue(m, it->first);
-                } else {
-                    m = unifyVariable(m, it->first);
-                    seenregs.insert(it->first);
-                }
-            }
-        }
-    }
-    return m;
-};
+    return compileFlattenedFOT(m, flat, getStructure, unifyVariable,
+                               unifyValue);
+}
 
 void prettyPrintMachine(Machine m) {
     // H, S
