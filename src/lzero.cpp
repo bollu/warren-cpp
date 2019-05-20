@@ -146,6 +146,7 @@ struct Hcell {
                 return;
             case Htag::Str:
                 o << "STR(" << hix_ <<")";
+                return;
             case Htag::Functor:
                 o << "F(" << f_ <<")";
         }
@@ -588,16 +589,17 @@ void fig21() {
     FOTerm hZW = FOTerm::functor("h", {Z, W});
     FOTerm p = FOTerm::functor("p", {Z, hZW, fW});
 
-    cout << "flattening term: " << p << "\n";
+    cout << "*** flattening term: " << p << " ***\n";
 
     Flattener f;
     (void)flatten(f, p);
 
-    cout << "flattened representation (page 15):\n";
+    cout << "*** flattened representation (page 15) ***\n";
     printMap(std::cout, f.flat);
 
     Machine m;
     m = compileQuery(m, f.flat);
 
+    cout << "*** machine state after query compilation ***\n";
     prettyPrintMachine(m);
 }
