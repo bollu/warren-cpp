@@ -206,6 +206,26 @@ struct Machine {
     Machine() : h(0), s(0), mode(Mode::Read){};
 };
 
+void prettyPrintMachine(Machine m) {
+    // H, S
+    std::cout << "H: " << m.h << "|S: " << m.s << "\n";
+
+    std::cout << "Heap:\n";
+    for (auto it : m.heap) {
+        std::cout << it.first << " -> " << it.second;
+        std::cout << "\n";
+    }
+    std::cout << "\n--\n";
+
+    std::cout << "Registers:\n";
+    for (auto it : m.regval) {
+        std::cout << it.first << " -> " << it.second;
+        std::cout << "\n";
+    }
+    std::cout << "\n--\n";
+}
+
+
 // Figure 2.2
 Machine putStructure(Machine m, Register r, Functor f) {
     m.regval[r] = m.heap[m.h] = Hcell::str(m.h + 1);
@@ -627,6 +647,26 @@ Machine runInst(Machine m, Inst i) {
     }
 }
 
+// run a sequence of instructions.
+Machine runInsts(Machine m, std::vector<Inst> is) {
+    for(auto i : is) m = runInst(m, i);
+    return m;
+}
+
+// Run a sequence of instructions, logging the machine state
+// after each instruction.
+
+Machine runInstsPrettyPrint(std::ostream &o, Machine m, std::vector<Inst> is) {
+    prettyPrintMachine(m);
+    for(int i = 0; i < is.size(); i++) {
+        o << "[[[" << i + 1 << "]]]" << is[i] << "\n";
+        m = runInst(m, is[i]);
+        prettyPrintMachine (m);
+    }
+    return m;
+}
+
+
 
 // compile a flattened system of queries into a machine state
 std::vector<Inst> compileFlattenedFOT( std::map<Register, FOTermFlattened>
@@ -677,25 +717,6 @@ std::vector<Inst> compileQuery( std::map<Register, FOTermFlattened> flat) {
 std::vector<Inst> compileProgram(std::map<Register, FOTermFlattened> flat) {
     return compileFlattenedFOT(flat, Inst::getStructure, Inst::unifyVariable,
                                Inst::unifyValue);
-}
-
-void prettyPrintMachine(Machine m) {
-    // H, S
-    std::cout << "H: " << m.h << "|S: " << m.s << "\n";
-
-    std::cout << "Heap:\n";
-    for (auto it : m.heap) {
-        std::cout << it.first << " -> " << it.second;
-        std::cout << "\n";
-    }
-    std::cout << "\n--\n";
-
-    std::cout << "Registers:\n";
-    for (auto it : m.regval) {
-        std::cout << it.first << " -> " << it.second;
-        std::cout << "\n";
-    }
-    std::cout << "\n--\n";
 }
 
 template <typename K, typename V>
@@ -759,7 +780,9 @@ void test_compile_query() {
 
     std::cout << "*** machine state after query compilation ***\n";
     Machine m;
-    prettyPrintMachine(m);
+
+    std::cout << "*** running machine\n";
+    runInstsPrettyPrint(std::cout, m, insts);
 }
 
 void test_compile_program() {
