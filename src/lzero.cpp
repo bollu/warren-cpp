@@ -6,6 +6,9 @@
 #include <stack>
 #include <vector>
 
+#define DERIVE_OSTREAM_OUT(cls) \
+    std::ostream& operator << (std::ostream &o, const cls &c) { c.print(o); return o; }
+
 struct Hix {
     int hix;
 
@@ -490,12 +493,149 @@ Register flatten(Flattener &c, FOTerm term) {
     assert(false && "unreachable");
 };
 
+// tag for arguments
+enum class ArgTag { Functor, Register };
+
+// arguments
+struct Arg {
+   private:
+    // yes we heammorage memory, but really, who cares?
+    Functor f_;
+    Register r_;
+
+    ArgTag tag;
+
+   public:
+    Arg(Functor f) : f_(f), tag(ArgTag::Functor){};
+    Arg(Register r) : r_(r), tag(ArgTag::Register){};
+
+    Functor f() {
+        assert(tag == ArgTag::Functor);
+        return f_;
+    }
+    Register r() {
+        assert(tag == ArgTag::Register);
+        return r_;
+    }
+
+    void print(std::ostream &o) const {
+        switch(tag) {
+            case ArgTag::Functor: o << f_; return;
+            case ArgTag::Register: o << r_; return;
+        }
+
+    }
+};
+
+DERIVE_OSTREAM_OUT(Arg);
+
+// tag for instructions.
+enum InstTag {
+    PutStructure,
+    SetVariable,
+    SetValue,
+    GetStructure,
+    UnifyVariable,
+    UnifyValue
+};
+
+std::ostream & operator << (std::ostream &o, const InstTag &tag) {
+    switch(tag) {
+        case PutStructure: o << "putStructure"; break;
+        case SetVariable: o << "SetVariable"; break;
+        case SetValue: o << "SetValue"; break;
+        case GetStructure: o << "GetStructure"; break;
+        case UnifyVariable: o << "UnifyVariable"; break;
+        case UnifyValue: o << "UnifyValue"; break;
+    }
+    return o;
+}
+
+struct Inst {
+   private:
+    InstTag tag_;
+    std::vector<Arg> args;
+    Inst(InstTag tag, std::initializer_list<Arg> args) : tag_(tag), args(args){};
+
+   public:
+    static Inst putStructure(Register r, Functor f) {
+        return Inst(InstTag::PutStructure, {r, f});
+    }
+
+    static Inst setVariable(Register r) {
+    return Inst(InstTag::SetVariable, {r});
+    }
+
+    static Inst setValue(Register r) {
+        return Inst(InstTag::SetValue, {r});
+    }
+
+    static Inst getStructure(Register r, Functor f) {
+        return Inst(InstTag::GetStructure, {r, f});
+    }
+
+    static Inst unifyVariable(Register r) {
+    return Inst(InstTag::UnifyVariable, {r});
+    }
+
+    static Inst unifyValue(Register r) {
+        return Inst(InstTag::UnifyValue, {r});
+    }
+
+    InstTag tag() { return tag_; }
+
+    template <typename T>
+    // invoke with get<Functor>(i), get<Register>(i) to get the ith
+    // functor or register parameter.
+    T get(int i);
+
+    void print(std::ostream &o) const  {
+        o << tag_;
+        o << "(";
+        const int n = args.size();
+        for(int i = 0; i < n; ++i) {
+            o << args[i];
+            if (i < n - 1) o << ",";
+        }
+        o << ")";
+    }
+
+};
+DERIVE_OSTREAM_OUT(Inst);
+
+// Fuck, I love C++.
+template <>
+Functor Inst::get(int i) {
+    return args[i].f();
+}
+
+template <>
+Register Inst::get(int i) {
+    return args[i].r();
+}
+
+
+// Run an instruction on the machine
+Machine runInst(Machine m, Inst i) {
+    switch (i.tag()) {
+        case PutStructure: return putStructure(m, i.get<Register>(0), i.get<Functor>(1));
+        case SetVariable: return setVariable(m, i.get<Register>(0));
+        case SetValue: return setValue(m, i.get<Register>(0));
+        case GetStructure: return getStructure(m, i.get<Register>(0), i.get<Functor>(1));
+        case UnifyVariable: return unifyVariable(m, i.get<Register>(0));
+        case UnifyValue: return unifyValue(m, i.get<Register>(0));
+    }
+}
+
+
 // compile a flattened system of queries into a machine state
-Machine compileFlattenedFOT(
-    Machine m, std::map<Register, FOTermFlattened> flat,
-    std::function<Machine(Machine, Register, Functor)> compileFunctor,
-    std::function<Machine(Machine, Register)> compileUnseenRegister,
-    std::function<Machine(Machine, Register)> compileSeenRegister) {
+std::vector<Inst> compileFlattenedFOT( std::map<Register, FOTermFlattened>
+        flat, std::function<Inst(Register, Functor)>
+        compileFunctor, std::function<Inst(Register)>
+        compileUnseenRegister, std::function<Inst(Register)>
+        compileSeenRegister) {
+
+    std::vector<Inst> insts;
     // checks if a register has been seen before.
     std::set<Register> seenregs;
 
@@ -506,15 +646,15 @@ Machine compileFlattenedFOT(
         switch (t.tag) {
             case FOTermTag::Functor: {
                 Functor f = Functor(t.name, t.params.size());
-                m = compileFunctor(m, rlhs, f);
+                insts.push_back(compileFunctor(rlhs, f));
                 seenregs.insert(rlhs);
                 for (int i = 0; i < t.params.size(); i++) {
                     const Register r = t.params[i];
                     // these must be registers
                     if (seenregs.count(r)) {
-                        m = compileUnseenRegister(m, r);
+                        insts.push_back(compileSeenRegister(r));
                     } else {
-                        m = compileSeenRegister(m, r);
+                        insts.push_back(compileUnseenRegister(r));
                         seenregs.insert(r);
                     }
                 }
@@ -525,18 +665,18 @@ Machine compileFlattenedFOT(
             }
         }
     }
-    return m;
+    return insts;
 };
 
 // compile a flattened system of queries into a machine state
-Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
-    return compileFlattenedFOT(m, flat, putStructure, setVariable, setValue);
+std::vector<Inst> compileQuery( std::map<Register, FOTermFlattened> flat) {
+    return compileFlattenedFOT(flat, Inst::putStructure, Inst::setVariable, Inst::setValue);
 }
 
 // compile a flattened system of a program  into a machine state
-Machine compileProgram(Machine m, std::map<Register, FOTermFlattened> flat) {
-    return compileFlattenedFOT(m, flat, getStructure, unifyVariable,
-                               unifyValue);
+std::vector<Inst> compileProgram(std::map<Register, FOTermFlattened> flat) {
+    return compileFlattenedFOT(flat, Inst::getStructure, Inst::unifyVariable,
+                               Inst::unifyValue);
 }
 
 void prettyPrintMachine(Machine m) {
@@ -565,26 +705,93 @@ void printMap(std::ostream &o, const std::map<K, V> &m) {
     }
 }
 
-// pretty print to ensure that we get a similar heap representation as in
-// figure 2.1
-void fig21() {
+// From figure 2.1
+// p(Z, h(Z, W), f(W))
+FOTerm test_create_query() {
     FOTerm W = FOTerm::variable("W");
     FOTerm Z = FOTerm::variable("Z");
     FOTerm fW = FOTerm::functor("f", {W});
     FOTerm hZW = FOTerm::functor("h", {Z, W});
     FOTerm p = FOTerm::functor("p", {Z, hZW, fW});
+    return p;
+}
+
+// From page 15
+// p(f(X), h(Y, f(a)), Y)
+FOTerm test_create_program() {
+    FOTerm X = FOTerm::variable("X");
+    FOTerm Y = FOTerm::variable("Y");
+    FOTerm a = FOTerm::functor("a", {});
+    FOTerm fa = FOTerm::functor("f", {a});
+    FOTerm fX = FOTerm::functor("f", {X});
+    FOTerm hYfa = FOTerm::functor("h", {Y, fa});
+    return FOTerm::functor("p", {fX, hYfa, Y});
+}
+
+template<typename T>
+void printVector(std::ostream &o, const std::vector<T> &ts, const char *separator=" ") {
+    o << "[" << separator;
+    for(int i = 0; i < ts.size(); ++i) {
+        o << ts[i];
+        o << separator;
+    }
+    o << "]";
+}
+
+// pretty print to ensure that we get a similar heap representation as in
+// figure 2.1
+void test_compile_query() {
+    FOTerm p = test_create_query();
 
     std::cout << "*** flattening term: " << p << " ***\n";
 
     Flattener f;
     (void)flatten(f, p);
 
-    std::cout << "*** flattened representation (page 15) ***\n";
+    std::cout << "*** flattened representation (page 12) ***\n";
     printMap(std::cout, f.flat);
 
-    Machine m;
-    m = compileQuery(m, f.flat);
+    std::vector<Inst> insts = compileQuery(f.flat);
+
+    std::cout << "*** instructions for query: ***\n";
+    printVector(std::cout, insts, "\n");
+    std::cout << "\n";
 
     std::cout << "*** machine state after query compilation ***\n";
+    Machine m;
     prettyPrintMachine(m);
 }
+
+void test_compile_program() {
+    return ;
+    std::cout << "*** TEST_COMPILE_PROGRAM ***\n";
+
+    Machine m;
+
+    {
+        FOTerm q = test_create_query();
+        Flattener f;
+        (void)flatten(f, q);
+
+        std::vector<Inst> is = compileQuery(f.flat);
+
+        std::cout << "*** Machine state after compiling query: " << q
+                  << " ***\n";
+        prettyPrintMachine(m);
+    }
+
+    FOTerm p = test_create_program();
+    std::cout << "*** flattening program: " << p << " ***\n";
+    {
+        Flattener f;
+        (void)flatten(f, p);
+
+        std::cout << "*** flattened representation (page 15) ***\n";
+        printMap(std::cout, f.flat);
+        std::vector<Inst> is = compileQuery(f.flat);
+    }
+
+    std::cout << "*** machine state after program compilation ***\n";
+    prettyPrintMachine(m);
+}
+

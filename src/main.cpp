@@ -1,6 +1,7 @@
 #include <lzero.h>
 
 int main() {
-    fig21();
+    test_compile_query();
+    test_compile_program();
     return 0;
 }
