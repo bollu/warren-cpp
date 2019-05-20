@@ -32,7 +32,6 @@ struct Hix {
     bool operator<(const Hix &other) const { return hix < other.hix; }
 
     void print(std::ostream &o, bool color = false) const { o << "0x" << hix; }
-
 };
 
 std::ostream &operator<<(std::ostream &o, Hix hix) {
@@ -54,7 +53,6 @@ struct Register {
     bool operator<(const Register &other) const { return r < other.r; }
 
     void print(std::ostream &o, bool color = false) const { o << "%" << r; }
-
 };
 
 std::ostream &operator<<(std::ostream &o, Register r) {
@@ -73,9 +71,7 @@ struct Functor {
     bool operator==(const Functor &other) const {
         return id == other.id && arity == other.arity;
     }
-    void print(ostream &o) {
-        o << id << "/" << arity;
-    }
+    void print(ostream &o) { o << id << "/" << arity; }
 };
 
 std::ostream &operator<<(std::ostream &o, Functor f) {
@@ -140,19 +136,18 @@ struct Hcell {
     }
 
     void print(ostream &o) {
-        switch(tag) {
+        switch (tag) {
             case Htag::Ref:
-                o << "REF(" << hix_ <<")";
+                o << "REF(" << hix_ << ")";
                 return;
             case Htag::Str:
-                o << "STR(" << hix_ <<")";
+                o << "STR(" << hix_ << ")";
                 return;
             case Htag::Functor:
-                o << "F(" << f_ <<")";
+                o << "F(" << f_ << ")";
         }
     }
 };
-
 
 std::ostream &operator<<(std::ostream &o, Hcell hc) {
     hc.print(o);
@@ -206,7 +201,7 @@ struct Machine {
     Hix s;
     Mode mode;
 
-    Machine()  : h(0), s(0), mode(Mode::Read) {};
+    Machine() : h(0), s(0), mode(Mode::Read){};
 };
 
 // Figure 2.2
@@ -390,18 +385,15 @@ struct FOTerm {
                 o << name;
                 return;
             case FOTermTag::Functor:
-                o << name <<"(";
-                for(int i =0; i < params.size();++i) {
+                o << name << "(";
+                for (int i = 0; i < params.size(); ++i) {
                     params[i].print(o);
-                    if (i + 1 < params.size())
-                        o << ", ";
+                    if (i + 1 < params.size()) o << ", ";
                 }
                 o << ")";
-
         }
     }
 };
-
 
 std::ostream &operator<<(std::ostream &o, FOTerm t) {
     t.print(o);
@@ -425,9 +417,8 @@ struct FOTermFlattened {
         return t;
     }
 
-
     static FOTermFlattened functor(std::string fname,
-                          std::vector<Register> params) {
+                                   std::vector<Register> params) {
         FOTermFlattened t;
         // should be small letter
         assert(fname[0] >= 'a' && fname[0] <= 'z');
@@ -443,18 +434,15 @@ struct FOTermFlattened {
                 o << name;
                 return;
             case FOTermTag::Functor:
-                o << name <<"(";
-                for(int i =0; i < params.size();++i) {
+                o << name << "(";
+                for (int i = 0; i < params.size(); ++i) {
                     params[i].print(o);
-                    if (i + 1 < params.size())
-                        o << ", ";
+                    if (i + 1 < params.size()) o << ", ";
                 }
                 o << ")";
-
         }
     }
 };
-
 
 std::ostream &operator<<(std::ostream &o, FOTermFlattened t) {
     t.print(o);
@@ -507,20 +495,30 @@ Register flatten(Flattener &c, FOTerm term) {
 Machine compileQuery(Machine m, std::map<Register, FOTermFlattened> flat) {
     // checks if a register has been seen before.
     std::set<Register> seenregs;
-    for (auto it = flat.begin(); it != flat.end(); ++it) {
-        switch (it->second.tag) {
+
+    // We need to traverse the description in _reverse order_.
+    for (auto it = flat.rbegin(); it != flat.rend(); ++it) {
+        const Register rlhs = it->first;
+        const FOTermFlattened t = it->second;
+        switch (t.tag) {
             case FOTermTag::Functor: {
-                Functor f = Functor(it->second.name, it->second.params.size());
-                m = putStructure(m, it->first, f);
+                Functor f = Functor(t.name, t.params.size());
+                m = putStructure(m, rlhs, f);
+                seenregs.insert(rlhs);
+                for (int i = 0; i < t.params.size(); i++) {
+                    const Register r = t.params[i];
+                    // these must be registers
+                    if (seenregs.count(r)) {
+                        m = setValue(m, r);
+                    } else {
+                        m = setVariable(m, r);
+                        seenregs.insert(r);
+                    }
+                }
+                break;
             }
             case FOTermTag::Variable: {
-                // we've seen this variable
-                if (seenregs.count(it->first)) {
-                    m = setValue(m, it->first);
-                } else {
-                    m = setVariable(m, it->first);
-                    seenregs.insert(it->first);
-                }
+                break;
             }
         }
     }
@@ -559,23 +557,23 @@ void prettyPrintMachine(Machine m) {
     cout << "H: " << m.h << "|S: " << m.s << "\n";
 
     cout << "Heap:\n";
-    for(auto it: m.heap) {
+    for (auto it : m.heap) {
         cout << it.first << " -> " << it.second;
         cout << "\n";
     }
     cout << "\n--\n";
 
     cout << "Registers:\n";
-    for(auto it: m.regval) {
+    for (auto it : m.regval) {
         cout << it.first << " -> " << it.second;
         cout << "\n";
     }
     cout << "\n--\n";
 }
 
-template<typename K, typename V>
+template <typename K, typename V>
 void printMap(std::ostream &o, const std::map<K, V> &m) {
-    for(auto it: m) {
+    for (auto it : m) {
         o << it.first << " -> " << it.second << "\n";
     }
 }
